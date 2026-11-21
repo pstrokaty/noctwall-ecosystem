@@ -1,34 +1,11 @@
-// WallpaperFx.qml — the wallpaper transitions, drawn by the shell instead of awww.
-//
-// awww's transitions (fade, wipe, grow, wave...) are the ones the rice used
-// until 2026-10-30, picked at random, and Diego put it plainly: "they look like
-// PowerPoint 2013". These are two of our own, in a shader (shaders/wallfx.frag),
-// with the maps of ~/.local/bin/wallfx:
-//
-//   contagio  colonies landing at random places eat through the old wallpaper
-//             in crisp 4 px cells, each one burning for an instant in the new
-//             palette's most vivid colour.
-//   perfil    if the new wallpaper has a character: a thin quiet line draws
-//             its outline, it fills in, and the rest spreads out of it with
-//             the same cells. Nonchalant on purpose ("less neon", Diego).
-//
-// HOW IT HANDS OVER WITH AWWW. awww keeps being the wallpaper: this only lives
-// for the length of the change, in a layer ABOVE awww and below the windows
-// (Bottom, empty in this rice). The order is what makes it seamless:
-//   1. load both images and the maps, off the main thread (~130 ms);
-//   2. start the transition and, at the same time, fade in over awww. At t≈0
-//      the transition IS the old wallpaper, so the fade is between two renders
-//      of the same image and nobody sees it;
-//   3. once fully covered, switch awww instantly (transition none) underneath;
-//   4. the transition ends on the new image, which awww now shows too;
-//   5. fade out, and the textures are released.
-// Switching awww in the middle instead of before is what removes the wait: it
-// takes ~150 ms, and that used to be a frozen frame before anything moved.
-// If anything fails to load within 2.5 s, awww changes on its own with a plain
-// fade: the wallpaper must change even if the effect cannot be shown.
-//
-// IPC (set-wallpaper.sh calls it; `noctwall-fx elige` picks the kind and its maps):
-//   qs ipc call wallfx play OLD NEW contagio|perfil MAP LINE
+// WallpaperFx.qml — GPU-accelerated shader wallpaper transitions for Quickshell.
+// Renders on WlrLayer.Bottom above the desktop wallpaper during transitions:
+//   1. Load old/new wallpapers and precomputed transition maps asynchronously.
+//   2. Fade in the shader layer at t=0 (visually identical to the old wallpaper).
+//   3. Trigger wallSetter (Noctalia IPC) underneath once covered.
+//   4. Complete shader transition, wait for settle (40 ms), fade out, and release textures.
+//   5. Safety watchdog (2500 ms) ensures the wallpaper updates even if assets fail to load.
+
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
@@ -37,21 +14,16 @@ import QtQuick
 Scope {
     id: root
 
-    // ─── test hooks: a second qs on a headless output, without awww ───
     readonly property string onlyScreen: Quickshell.env("WALLFX_ONLY") || ""
     readonly property bool dry: Quickshell.env("WALLFX_DRY") === "1"
 
-    // ─── tuning ───
-    // Scene changes are not in the motion scale's steps (those are for things
-    // INSIDE a scene). They are registered in motion-language.md as ESCENA.
     property int msContagio: 1800
     property int msPerfil: 2000
-    property int msFade: 130          // RESPUESTA: the hand-over is a cross-fade between
-                                      // two renders of the same image, i.e. invisible
+    property int msFade: 130
     property real glow: 0.9
     property real lineW: 1.5
+    property var wallpaperSetCmd: ["noctalia", "msg", "wallpaper-set"]
 
-    // ─── one change ───
     property string oldPath: ""
     property string newPath: ""
     property string kind: "contagio"
@@ -59,25 +31,20 @@ Scope {
     property string fieldPath: ""
     property string linePath: ""
     property bool autoGo: true
-    // idle → loading → run (→ held, until awww has switched) → fadeout → idle;
-    // in the lab (dry) loading → ready, held there until `go`.
     property string phase: "idle"
     property real t: 0
     property real fade: 0
     property bool swapped: false
-    property int gen: 0               // one per change: late news from an older one is ignored
+    property int gen: 0
     property int swapGen: -1
-    // Captured from the new palette when the change starts: the contagion's
-    // burning edge (its most vivid colour) and the outline's line (its
-    // lightest tone).
-    property color ember: "#ff7a00"    // Default ember color
-    property color ink: "#ffffff"      // Default ink color
+    property color ember: "#ff7a00"
+    property color ink: "#ffffff"
     property real seed: 0
     property int readyCount: 0
     readonly property int screenCount: screens.instances.length
     readonly property bool active: phase !== "idle"
+
     function lifted(c) {
-        // A palette colour can be dark; the burning edge has to light up.
         return Qt.hsla(c.hslHue, Math.max(c.hslSaturation, 0.55),
                        Math.min(Math.max(c.hslLightness, 0.62), 0.82), 1)
     }
@@ -94,6 +61,7 @@ Scope {
         root.phase = "loading"
         watchdog.restart()
     }
+
     function screenReady() {
         if (root.phase !== "loading") return
         root.readyCount++
@@ -102,10 +70,9 @@ Scope {
         if (root.dry) { root.fade = 1; root.phase = "ready"; if (root.autoGo) root.go(); return }
         root.go()
     }
+
     function go() {
         if (root.phase !== "ready" && root.phase !== "loading") return
-        // Captured now, not bound: Colors repaints when pywal writes, and the
-        // front must not change colour halfway through.
         root.ember = root.lifted("#ff7a00")
         root.ink = "#ffffff"
         root.seed = Math.random() * 100
@@ -114,7 +81,7 @@ Scope {
         run.restart()
         if (!root.dry) fadeIn.restart()
     }
-    // Uncover only when the transition has ended AND awww shows the new one.
+
     function maybeFinish() {
         if (root.dry) { if (!run.running) root.phase = "done"; return }
         if (run.running) return
@@ -122,16 +89,17 @@ Scope {
         root.phase = "fadeout"
         fadeOut.restart()
     }
-    // In the lab (WALLFX_ONLY) awww may only touch that output: the others are
-    // the real desktop.
-    function awwwImg(path, extra) {
-        return ["noctalia", "msg", "wallpaper-set"].concat(root.onlyScreen ? [root.onlyScreen, path] : [path])
+
+    function setterCmd(path) {
+        return root.wallpaperSetCmd.concat(root.onlyScreen ? [root.onlyScreen, path] : [path])
     }
+
     function swap() {
         root.swapGen = root.gen
-        awww.command = root.awwwImg(root.newPath, ["--transition-type", "none"])
-        awww.running = true
+        wallSetter.command = root.setterCmd(root.newPath)
+        wallSetter.running = true
     }
+
     function finish() {
         fadeIn.stop(); run.stop(); fadeOut.stop(); watchdog.stop(); settle.stop()
         root.phase = "idle"; root.fade = 0; root.t = 0
@@ -141,14 +109,11 @@ Scope {
     NumberAnimation { id: fadeIn; target: root; property: "fade"; from: 0; to: 1
         duration: root.msFade; easing.type: Easing.OutQuad
         onFinished: root.swap() }
-    // `t` is TIME, so it runs linear; each phase eases its own stretch in the
-    // shader with the motion language's curves.
+
     NumberAnimation { id: run; target: root; property: "t"; from: 0; to: 1
         easing.type: Easing.Linear
         onFinished: root.maybeFinish() }
-    // How the last transition ran: `qs ipc call wallfx stats`. A scene change
-    // that stutters is worse than the plain fade it replaced, so this is
-    // measured on the real screen, not assumed.
+
     property int statFrames: 0
     property real statWorst: 0
     property string lastStats: ""
@@ -167,33 +132,25 @@ Scope {
         onFinished: root.finish() }
 
     Process {
-        id: awww
-        // If awww did not switch, uncovering would bring the OLD one back at the
-        // end: better to stop here and let awww try on its own.
-        // An awww from a change that has since been replaced is left to finish
-        // on its own: killing it, or reacting to it, would cut the new one.
+        id: wallSetter
         onExited: (code) => {
             if (root.swapGen !== root.gen) return
             if (code === 0) { settle.restart(); return }
             const n = root.newPath
             root.finish()
-            Quickshell.execDetached(root.awwwImg(n, ["--transition-type", "fade", "--transition-duration", "0.5"]))
+            Quickshell.execDetached(root.setterCmd(n))
         }
     }
-    // awww has the new image; give it two frames to present it before anything
-    // can uncover it.
+
     Timer { id: settle; interval: 40; onTriggered: { root.swapped = true; root.maybeFinish() } }
 
-    // Two ways to get stuck, two ways out: the images never load (awww changes
-    // on its own), or awww never answers (the layer, already showing the new
-    // wallpaper, steps aside anyway instead of staying on top for good).
     Timer {
         id: watchdog; interval: 2500
         onTriggered: {
             const n = root.newPath, loading = root.phase === "loading"
             root.finish()
             if (loading && !root.dry && n)
-                Quickshell.execDetached(root.awwwImg(n, ["--transition-type", "fade", "--transition-duration", "0.5"]))
+                Quickshell.execDetached(root.setterCmd(n))
         }
     }
 
@@ -202,7 +159,6 @@ Scope {
         function play(oldImg: string, newImg: string, kind: string, field: string, line: string, span: string): string {
             root.prepare(oldImg, newImg, kind, field, line, true, span); return "ok"
         }
-        // For tests: load and hold the first frame; `go` starts it.
         function prepare(oldImg: string, newImg: string, kind: string, field: string, line: string): string {
             root.prepare(oldImg, newImg, kind, field, line, false); return "ok"
         }
@@ -236,7 +192,7 @@ Scope {
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore
             anchors { top: true; bottom: true; left: true; right: true }
-            mask: Region {}                       // clicks go through to the desktop
+            mask: Region {}
             WlrLayershell.layer: WlrLayer.Bottom
             WlrLayershell.namespace: "quickshell:noctwall-fx"
 
@@ -244,8 +200,6 @@ Scope {
                 && fieldImg.status === Image.Ready && lineImg.status === Image.Ready
             onLoadedChanged: if (loaded) root.screenReady()
 
-            // Decoded at the size of the screen (covering it), not at the size
-            // of the file: a 6 MB wallpaper does not need 24 MB of texture.
             Image { id: oldImg; visible: false; asynchronous: true; cache: false
                 source: root.oldPath ? "file://" + root.oldPath : ""
                 sourceSize: root.spanMode ? Qt.size(root.deskW, root.deskH) : Qt.size(win.width, win.height)
@@ -254,15 +208,12 @@ Scope {
                 source: root.newPath ? "file://" + root.newPath : ""
                 sourceSize: root.spanMode ? Qt.size(root.deskW, root.deskH) : Qt.size(win.width, win.height)
                 fillMode: Image.PreserveAspectCrop }
-            // The maps hold numbers, not colours: contagion's are read texel by
-            // texel (no filtering), the outline's are interpolated on purpose.
             Image { id: fieldImg; visible: false; asynchronous: true; cache: false
                 smooth: root.kind === "perfil"
                 source: root.fieldPath ? "file://" + root.fieldPath : "" }
             Image { id: lineImg; visible: false; asynchronous: true; cache: false
                 source: root.linePath ? "file://" + root.linePath : "" }
 
-            // awww's "crop": scale to cover the screen, centred.
             function crop(img) {
                 const iw = Math.max(img.implicitWidth, 1), ih = Math.max(img.implicitHeight, 1)
                 const targetW = root.spanMode ? root.deskW : win.width
@@ -307,7 +258,6 @@ Scope {
                 property color ember: root.ember
                 property color ink: root.ink
                 property vector4d spanRect: win.calcSpanRect()
-                // Versioned name: Qt caches compiled shaders by URL (see TopShell).
                 fragmentShader: Qt.resolvedUrl("shaders/wallfx.v16.frag.qsb")
             }
         }
