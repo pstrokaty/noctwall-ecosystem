@@ -33,7 +33,8 @@
     "glowEnabled": true,
     "glowPulseMin": 0.65,
     "glowPulseMax": 0.96,
-    "defaultAccent": "#7aa2f7"
+    "defaultAccent": "#7aa2f7",
+    "sideBordersEnabled": true
   },
   "transitions": {
     "msContagio": 1800,

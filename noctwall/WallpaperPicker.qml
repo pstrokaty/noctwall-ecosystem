@@ -34,6 +34,7 @@ Scope {
             blurEditorPadding: 240,
             editorShiftY: -82,
             glowEnabled: true,
+            sideBordersEnabled: true,
             glowPulseMin: 0.65,
             glowPulseMax: 0.96,
             defaultAccent: "#7aa2f7"
@@ -328,7 +329,36 @@ Scope {
         }
     }
 
-    HyprlandFocusGrab { windows: [win]; active: root.open; onCleared: root.open = false }
+    HyprlandFocusGrab {
+        id: focusGrab
+        windows: [win]
+        active: root.open
+        onCleared: {
+            if (win.migratingScreen) {
+                regrabTimer.restart()
+            } else {
+                root.open = false
+            }
+        }
+    }
+
+    Timer {
+        id: screenMigrateTimer
+        interval: 280
+        onTriggered: win.migratingScreen = false
+    }
+
+    Timer {
+        id: regrabTimer
+        interval: 45
+        onTriggered: {
+            if (root.open) {
+                focusGrab.active = false
+                focusGrab.active = true
+                stage.forceActiveFocus()
+            }
+        }
+    }
 
     FolderListModel {
         id: wallModel
@@ -341,6 +371,14 @@ Scope {
 
     PanelWindow {
         id: win
+        property bool migratingScreen: false
+        onScreenChanged: {
+            if (root.open) {
+                migratingScreen = true
+                screenMigrateTimer.restart()
+                regrabTimer.restart()
+            }
+        }
         screen: {
             const mon = Hyprland.focusedMonitor
             if (mon) {
@@ -551,25 +589,44 @@ Scope {
                             }
                         }
 
-                        Rectangle {
-                            anchors.fill: parent
-                            color: "#14161b"
-                            border.width: slot.ad < 0.25 ? 2 : 1
-                            border.color: slot.ad < 0.45
-                                ? Qt.rgba(slot.accentCol.r, slot.accentCol.g, slot.accentCol.b, Math.max(0.22, 0.95 * (1.0 - slot.ad * 1.6)))
-                                : Qt.rgba(1, 1, 1, 0.22)
-                        }
                         Item {
-                            anchors.fill: parent; anchors.margins: carousel.bw; clip: true
-                            Image {
-                                anchors.centerIn: parent
-                                width: carousel.imgW
-                                height: carousel.ih
-                                fillMode: Image.PreserveAspectCrop
-                                source: model.fileUrl
-                                asynchronous: true; cache: true; mipmap: true
-                                sourceSize: Qt.size(carousel.imgW, carousel.ih)
-                                transform: Matrix4x4 { matrix: Qt.matrix4x4(1, -carousel.skew, 0, carousel.skew * carousel.ih / 2, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }
+                            id: cardSurface
+                            anchors.fill: parent
+                            anchors.margins: -3
+                            layer.enabled: true
+                            layer.smooth: true
+                            layer.mipmap: true
+
+                            Item {
+                                anchors.fill: parent
+                                anchors.margins: 3
+
+                                Rectangle {
+                                    readonly property bool sideBorders: (root.cfg.carousel && root.cfg.carousel.sideBordersEnabled !== undefined) ? Boolean(root.cfg.carousel.sideBordersEnabled) : true
+                                    readonly property real focusFactor: sideBorders ? 1.0 : Math.max(0.0, Math.min(1.0, 1.0 - slot.ad * 1.8))
+                                    anchors.fill: parent
+                                    antialiasing: true
+                                    color: Qt.rgba(0.078, 0.086, 0.106, focusFactor)
+                                    border.width: slot.ad < 0.25 ? 2 : (focusFactor > 0.05 ? 1 : 0)
+                                    border.color: slot.ad < 0.45
+                                        ? Qt.rgba(slot.accentCol.r, slot.accentCol.g, slot.accentCol.b, Math.max(sideBorders ? 0.22 : 0.0, 0.95 * (1.0 - slot.ad * 1.6)))
+                                        : (sideBorders ? Qt.rgba(1, 1, 1, 0.22) : "transparent")
+                                }
+                                Item {
+                                    readonly property bool sideBorders: (root.cfg.carousel && root.cfg.carousel.sideBordersEnabled !== undefined) ? Boolean(root.cfg.carousel.sideBordersEnabled) : true
+                                    readonly property real focusFactor: sideBorders ? 1.0 : Math.max(0.0, Math.min(1.0, 1.0 - slot.ad * 1.8))
+                                    anchors.fill: parent; anchors.margins: carousel.bw * focusFactor; clip: true
+                                    Image {
+                                        anchors.centerIn: parent
+                                        width: carousel.imgW
+                                        height: carousel.ih
+                                        fillMode: Image.PreserveAspectCrop
+                                        source: model.fileUrl
+                                        asynchronous: true; cache: true; mipmap: true; smooth: true; antialiasing: true
+                                        sourceSize: Qt.size(carousel.imgW, carousel.ih)
+                                        transform: Matrix4x4 { matrix: Qt.matrix4x4(1, -carousel.skew, 0, carousel.skew * carousel.ih / 2, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }
+                                    }
+                                }
                             }
                         }
                         MouseArea {

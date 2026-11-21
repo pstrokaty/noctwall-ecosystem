@@ -24,6 +24,8 @@ Item {
     readonly property real bandBottomY: (studio.height + studio.bandH) / 2
 
     property bool savedFlash: false
+    property bool sliderDragging: false
+    onIsOpenChanged: if (!isOpen) sliderDragging = false
     property string actionFeedback: ""
 
     function setParam(section, key, val) {
@@ -97,6 +99,8 @@ Item {
             }
             MouseArea {
                 anchors.fill: parent
+                preventStealing: true
+                hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: tRow.toggled()
             }
@@ -176,6 +180,10 @@ Item {
 
             MouseArea {
                 anchors.fill: parent
+                anchors.topMargin: -6
+                anchors.bottomMargin: -4
+                preventStealing: true
+                hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 function applyMouse(mx) {
                     const usable = Math.max(1, track.width - knob.width)
@@ -185,8 +193,15 @@ Item {
                     const clamped = Math.max(sRow.minVal, Math.min(sRow.maxVal, Number(stepped.toFixed(sRow.decimals))))
                     studio.setParam(sRow.sectionName, sRow.keyName, clamped)
                 }
-                onPressed: (mouse) => applyMouse(mouse.x)
-                onPositionChanged: (mouse) => { if (pressed) applyMouse(mouse.x) }
+                onPressed: (mouse) => {
+                    studio.sliderDragging = true
+                    applyMouse(mouse.x)
+                }
+                onPositionChanged: (mouse) => {
+                    if (pressed) applyMouse(mouse.x)
+                }
+                onReleased: studio.sliderDragging = false
+                onCanceled: studio.sliderDragging = false
             }
         }
     }
@@ -323,6 +338,7 @@ Item {
 
         Flickable {
             id: flick
+            interactive: !studio.sliderDragging
             anchors.fill: parent
             anchors.margins: 16
             contentWidth: width
@@ -380,6 +396,12 @@ Item {
                     label: "Ambient Card Glow"
                     checked: (studio.car && studio.car.glowEnabled !== undefined) ? Boolean(studio.car.glowEnabled) : true
                     onToggled: studio.setParam("carousel", "glowEnabled", !((studio.car && studio.car.glowEnabled !== undefined) ? Boolean(studio.car.glowEnabled) : true))
+                }
+
+                ToggleRow {
+                    label: "Side Card Borders"
+                    checked: (studio.car && studio.car.sideBordersEnabled !== undefined) ? Boolean(studio.car.sideBordersEnabled) : true
+                    onToggled: studio.setParam("carousel", "sideBordersEnabled", !((studio.car && studio.car.sideBordersEnabled !== undefined) ? Boolean(studio.car.sideBordersEnabled) : true))
                 }
 
                 Rectangle { width: parent.width; height: 1; color: Qt.rgba(1, 1, 1, 0.1) }
