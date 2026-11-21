@@ -1,0 +1,328 @@
+#!/usr/bin/env python3
+import argparse, colorsys, json, os, pathlib, re, subprocess, sys
+
+try:
+    from PIL import Image
+except ImportError:
+    vp = pathlib.Path.home() / ".config/hypr/scripts/venv/bin/python"
+    if vp.exists() and sys.executable != str(vp):
+        os.execv(str(vp), [str(vp), *sys.argv])
+    Image = None
+
+home = pathlib.Path.home()
+conf = home / ".config/kitty/themes/noctalia.conf"
+walls_root = home / "Obrazy/Wallpapers"
+profiles_dir = home / ".config/OpenRGB/profiles"
+base_profile = profiles_dir / "DEFAULT.json"
+target_profile = profiles_dir / "NoctaliaSync.json"
+config_dir = pathlib.Path(os.environ.get("NOCTWALL_OPENRGB_DIR") or (home / ".config/noctwall/plugins/noctwall-openrgb"))
+settings_file = config_dir / "g213-settings.json"
+custom_file = config_dir / "g213-custom.json"
+cache_dir = home / ".cache/noctwall/openrgb"
+state_file = cache_dir / "g213-mode"
+modes_file = cache_dir / "g213-modes.json"
+wall_cache_file = cache_dir / "g213-cache.json"
+
+def load_json_dict(path):
+    if path.exists():
+        try:
+            d = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(d, dict):
+                return d
+        except Exception:
+            pass
+    return {}
+
+def save_json_atomic(path, data, compact=False):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    txt = json.dumps(data, separators=(",", ":")) if compact else json.dumps(data, indent=2, ensure_ascii=False)
+    tmp.write_text(txt, encoding="utf-8")
+    os.replace(tmp, path)
+
+def load_settings():
+    d = load_json_dict(settings_file)
+    sat = int(d.get("sat", 0))
+    val = int(d.get("val", 0))
+    return max(-50, min(100, sat)), max(-50, min(80, val))
+
+def save_settings(sat, val):
+    sat = max(-50, min(100, int(sat)))
+    val = max(-50, min(80, int(val)))
+    save_json_atomic(settings_file, {"sat": sat, "val": val})
+    return sat, val
+
+def wall_rel_key(img_path):
+    p = pathlib.Path(img_path).expanduser()
+    try:
+        return str(p.relative_to(walls_root))
+    except ValueError:
+        return str(p)
+
+def get_custom_modes(img_path):
+    if not img_path:
+        return []
+    db = load_json_dict(custom_file)
+    entries = db.get(wall_rel_key(img_path), [])
+    out = []
+    if isinstance(entries, list):
+        for item in entries:
+            if isinstance(item, dict) and isinstance(item.get("colors"), list) and len(item["colors"]) >= 5:
+                cols = [c if str(c).startswith("#") else f"#{c}" for c in item["colors"][:5]]
+                out.append({"name": str(item.get("name") or "Custom"), "colors": cols, "custom": True})
+    return out
+
+def parse_noctalia():
+    c = {}
+    if conf.exists():
+        for line in conf.read_text(encoding="utf-8").splitlines():
+            m = re.match(r"^([a-zA-Z0-9_]+)\s+#([0-9a-fA-F]{6})", line.strip())
+            if m: c[m.group(1)] = m.group(2).lower()
+    return c
+
+def hex_to_hsv(h):
+    h = h.lstrip("#")
+    return colorsys.rgb_to_hsv(int(h[0:2], 16)/255.0, int(h[2:4], 16)/255.0, int(h[4:6], 16)/255.0)
+
+def hsv_to_hex(h, s, v):
+    r, g, b = colorsys.hsv_to_rgb(h % 1.0, max(0.0, min(1.0, s)), max(0.0, min(1.0, v)))
+    return f"{int(round(r*255)):02x}{int(round(g*255)):02x}{int(round(b*255)):02x}"
+
+def tune_hex(hx, sat_pct, val_pct):
+    hx = hx.lstrip("#")
+    if sat_pct == 0 and val_pct == 0:
+        return f"#{hx}"
+    h, s, v = hex_to_hsv(hx)
+    if sat_pct > 0 and s > 0.03:
+        f = sat_pct / 100.0
+        s = min(1.0, (s ** (1.0 / (1.0 + f))) * (1.0 + f * 0.35))
+    elif sat_pct < 0:
+        s = max(0.0, s * (1.0 + sat_pct / 100.0))
+    if val_pct > 0 and v > 0.03:
+        f = val_pct / 100.0
+        v = min(1.0, v * (1.0 + f))
+    elif val_pct < 0:
+        v = max(0.05, v * (1.0 + val_pct / 100.0))
+    return f"#{hsv_to_hex(h, s, v)}"
+
+def is_green(h):
+    hue, sat, _ = hex_to_hsv(h)
+    return sat > 0.22 and 62.0 <= hue * 360.0 <= 165.0
+
+def uniq(items):
+    out = []
+    for x in items:
+        if x and x not in out: out.append(x)
+    return out
+
+def pad5(items, p):
+    res = list(items)
+    h, s, v = hex_to_hsv(p)
+    vars_ = [p, hsv_to_hex(h, min(1.0, s*1.1), min(1.0, v*1.15)), hsv_to_hex(h+0.04, s, v), hsv_to_hex(h-0.04, s, max(0.35, v*0.85)), hsv_to_hex(h, max(0.25, s*0.7), min(1.0, v*1.25))]
+    i = 0
+    while len(res) < 5:
+        res.append(vars_[i % 5]); i += 1
+    return res[:5]
+
+def extract_image_colors(img_path):
+    if Image is None or not img_path.exists():
+        return parse_noctalia()
+    with Image.open(img_path) as im:
+        im = im.convert("RGB")
+        im.thumbnail((192, 108), Image.Resampling.BILINEAR)
+        q = im.quantize(colors=24, method=Image.Quantize.MEDIANCUT)
+        pal = q.getpalette() or []
+        counts = q.getcolors(maxcolors=256) or []
+    scored, all_c = [], []
+    for cnt, idx in counts:
+        r, g, b = pal[idx*3:idx*3+3]
+        hx = f"{r:02x}{g:02x}{b:02x}"
+        h, s, v = colorsys.rgb_to_hsv(r/255.0, g/255.0, b/255.0)
+        all_c.append((cnt, hx, h, s, v))
+        if v >= 0.16 and not (s < 0.12 and v > 0.90):
+            scored.append(((s ** 1.35) * (v ** 0.65) * (cnt ** 0.35), hx, h, s, v))
+    if not scored:
+        scored = [(cnt * (v + 0.1), hx, h, s, v) for cnt, hx, h, s, v in all_c]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    distinct = []
+    for _, hx, h, s, v in scored:
+        if all(min(abs(h - dh), 1.0 - abs(h - dh)) > 0.045 or abs(v - dv) > 0.18 for _, dh, _, dv in distinct):
+            distinct.append((hx, h, s, v))
+        if len(distinct) >= 12: break
+    if not distinct:
+        distinct = [(hx, h, s, v) for _, hx, h, s, v in scored[:6]]
+    _, ph, ps, pv = distinct[0]
+    c = {"active_border_color": hsv_to_hex(ph, max(ps, min(1.0, ps*1.12)), max(pv, 0.58))}
+    keys = ("color1","color2","color3","color5","color6","color9","color10","color11","color13","color14","color4","color12")
+    for i, k in enumerate(keys):
+        _, h, s, v = distinct[i % len(distinct)]
+        c[k] = hsv_to_hex(h, max(s, min(1.0, s*1.08)), max(v, 0.50))
+    c["_pool"] = uniq([hsv_to_hex(h, max(s, min(1.0, s*1.08)), max(v, 0.45)) for _, h, s, v in distinct])
+    return c
+
+def build_modes_and_pool(c):
+    p = c.get("active_border_color") or c.get("color2") or c.get("color1") or "7aa2f7"
+    p_green = is_green(p)
+    raw_pool = c.get("_pool") or uniq([c.get(k, "") for k in ("active_border_color","color1","color2","color3","color5","color6","color9","color10","color11","color13","color14","color4","color12")]) or ["7aa2f7","bb9af7","f7768e","e0af68","7dcfff"]
+    filt = [x for x in raw_pool if p_green or not is_green(x)]
+    if len(filt) < 3: filt = pad5(filt, p)
+    ph, ps, pv = hex_to_hsv(p)
+    hi = hsv_to_hex(ph, max(0.25, ps*0.78), min(1.0, max(pv, 0.88)*1.08))
+    lo = hsv_to_hex(ph, min(1.0, ps*1.08), max(0.42, pv*0.75))
+    pick = lambda k, fb: c.get(k, "") if c.get(k, "") and (p_green or not is_green(c.get(k, ""))) else fb
+    m0 = pad5(uniq([p, pick("color10", hi), pick("color1", lo), pick("color14", hi), pick("color5", p)]), p)
+    m1 = sorted(pad5(sorted(filt, key=lambda x: hex_to_hsv(x)[1], reverse=True)[:5], p), key=lambda x: hex_to_hsv(x)[0])
+    mid, out = (filt[1] if len(filt) > 1 else hi), (filt[2] if len(filt) > 2 else lo)
+    m2 = [out, mid, p, mid, out]
+    m3 = sorted(pad5(filt[:5], p), key=lambda x: hex_to_hsv(x)[2])
+    m4 = pad5(uniq([c.get(k, "") for k in ("color1","color2","color3","color4","color5","color6")]), p)
+    m5 = [p] * 5
+    modes = [
+        {"name": "Accent & Glow", "colors": [f"#{x}" for x in m0]},
+        {"name": "Vibrant Wave", "colors": [f"#{x}" for x in m1]},
+        {"name": "Symmetric Core", "colors": [f"#{x}" for x in m2]},
+        {"name": "Luminance Flow", "colors": [f"#{x}" for x in m3]},
+        {"name": "Full Material", "colors": [f"#{x}" for x in m4]},
+        {"name": "Solid Accent", "colors": [f"#{x}" for x in m5]},
+    ]
+    pool_hex = [f"#{x.lstrip('#')}" for x in pad5(raw_pool, p)][:5] if len(raw_pool) < 5 else [f"#{x.lstrip('#')}" for x in raw_pool[:12]]
+    return modes, pool_hex
+
+def hex_to_bgr(h):
+    h = h.lstrip("#")
+    return (int(h[4:6], 16) << 16) | (int(h[2:4], 16) << 8) | int(h[0:2], 16)
+
+def apply_openrgb(hex_list, sat_pct=0, val_pct=0):
+    tuned = [tune_hex(x, sat_pct, val_pct) for x in hex_list[:5]]
+    bgr = [hex_to_bgr(x) for x in tuned]
+    leds = [bgr[0]] + bgr
+    if base_profile.exists():
+        data = json.loads(base_profile.read_text(encoding="utf-8"))
+        data["profile_name"] = "NoctaliaSync"
+        for ctrl in data.get("controllers", []):
+            if "Gaming Keyboard G213" in ctrl.get("name", ""):
+                ctrl["active_mode"] = 0; ctrl["colors"] = leds; break
+        tmp = target_profile.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        os.replace(tmp, target_profile)
+    subprocess.run(["openrgb", "--client", "127.0.0.1:6742", "-p", "NoctaliaSync"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, check=False)
+
+def cached_modes(img_path, d):
+    key = str(img_path)
+    try: mtime = int(img_path.stat().st_mtime)
+    except OSError: return None, None, False
+    ent = d.get(key)
+    if isinstance(ent, dict) and ent.get("mtime") == mtime and isinstance(ent.get("modes"), list) and isinstance(ent.get("pool"), list):
+        return ent["modes"], ent["pool"], False
+    modes, pool = build_modes_and_pool(extract_image_colors(img_path))
+    d[key] = {"mtime": mtime, "modes": modes, "pool": pool}
+    return modes, pool, True
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--mode", type=int, default=None)
+ap.add_argument("--next", action="store_true")
+ap.add_argument("--prev", action="store_true")
+ap.add_argument("--export-only", action="store_true")
+ap.add_argument("--image", type=str, default=None)
+ap.add_argument("--warm", nargs="?", const="", default=None)
+ap.add_argument("--preview-colors", type=str, default=None)
+ap.add_argument("--set-tune", nargs=2, type=int, metavar=("SAT", "VAL"), default=None)
+ap.add_argument("--add-custom", nargs=3, metavar=("IMAGE", "NAME", "COLORS"), default=None)
+ap.add_argument("--del-custom", nargs=2, metavar=("IMAGE", "INDEX"), default=None)
+args = ap.parse_args()
+
+cache_dir.mkdir(parents=True, exist_ok=True)
+wcache = load_json_dict(wall_cache_file)
+
+if args.warm is not None:
+    rdir = pathlib.Path(args.warm).expanduser() if args.warm else walls_root
+    exts = {".jpg", ".jpeg", ".png", ".webp"}
+    dirty, seen = False, set()
+    if rdir.exists():
+        for p in sorted(rdir.rglob("*")):
+            if p.is_file() and p.suffix.lower() in exts:
+                seen.add(str(p))
+                _, _, ch = cached_modes(p, wcache)
+                dirty = dirty or ch
+        for k in [k for k in wcache if k.startswith(str(rdir)) and k not in seen]:
+            del wcache[k]; dirty = True
+    if dirty or not wall_cache_file.exists():
+        save_json_atomic(wall_cache_file, wcache, compact=True)
+    sys.exit(0)
+
+if args.set_tune is not None:
+    sat_pct, val_pct = save_settings(args.set_tune[0], args.set_tune[1])
+    if modes_file.exists():
+        md = load_json_dict(modes_file)
+        if md:
+            md["sat"] = sat_pct
+            md["val"] = val_pct
+            save_json_atomic(modes_file, md)
+else:
+    sat_pct, val_pct = load_settings()
+
+if args.preview_colors is not None:
+    cols = [c.strip() if c.strip().startswith("#") else f"#{c.strip()}" for c in args.preview_colors.split(",") if c.strip()]
+    if len(cols) >= 5:
+        apply_openrgb(cols[:5], sat_pct, val_pct)
+    sys.exit(0)
+
+if args.add_custom is not None:
+    img_arg, cname, ccsv = args.add_custom
+    cols = [c.strip() if c.strip().startswith("#") else f"#{c.strip()}" for c in ccsv.split(",") if c.strip()]
+    if len(cols) >= 5:
+        db = load_json_dict(custom_file)
+        rk = wall_rel_key(img_arg)
+        lst = db.get(rk) if isinstance(db.get(rk), list) else []
+        lst.append({"name": cname.strip() or f"Custom #{len(lst)+1}", "colors": cols[:5]})
+        db[rk] = lst
+        save_json_atomic(custom_file, db)
+        args.image = img_arg
+        args.mode = 6 + len(lst) - 1
+
+if args.del_custom is not None:
+    img_arg, idx_str = args.del_custom
+    db = load_json_dict(custom_file)
+    rk = wall_rel_key(img_arg)
+    lst = db.get(rk) if isinstance(db.get(rk), list) else []
+    idx = int(idx_str) - 6 if int(idx_str) >= 6 else int(idx_str)
+    if 0 <= idx < len(lst):
+        lst.pop(idx)
+        if lst:
+            db[rk] = lst
+        else:
+            db.pop(rk, None)
+        save_json_atomic(custom_file, db)
+    args.image = img_arg
+    args.mode = max(0, min(int(idx_str) - 1, 5 + len(lst)))
+
+active = int(state_file.read_text().strip()) if state_file.exists() and state_file.read_text().strip().isdigit() else 0
+target_wall = pathlib.Path(args.image).expanduser() if args.image else None
+if target_wall is None:
+    lw = home / ".cache/noctwall/last-wallpaper.txt"
+    if lw.exists():
+        cand = pathlib.Path(lw.read_text(encoding="utf-8").strip())
+        if cand.exists():
+            target_wall = cand
+
+if target_wall is not None and target_wall.exists():
+    base_modes, pool, dirty = cached_modes(target_wall, wcache)
+    if base_modes is None:
+        base_modes, pool = build_modes_and_pool(parse_noctalia())
+    if dirty:
+        save_json_atomic(wall_cache_file, wcache, compact=True)
+    modes = list(base_modes) + get_custom_modes(target_wall)
+else:
+    modes, pool = build_modes_and_pool(parse_noctalia())
+
+if args.mode is not None: active = args.mode % len(modes)
+elif args.next: active = (active + 1) % len(modes)
+elif args.prev: active = (active - 1) % len(modes)
+else:
+    if active >= len(modes):
+        active = 0
+
+state_file.write_text(f"{active}\n", encoding="utf-8")
+save_json_atomic(modes_file, {"active": active, "modes": modes, "pool": pool, "sat": sat_pct, "val": val_pct})
+if not args.export_only:
+    apply_openrgb(modes[active]["colors"], sat_pct, val_pct)

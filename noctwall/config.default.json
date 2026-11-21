@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "paths": {
+    "wallpapersDir": "~/Obrazy/Wallpapers",
+    "randomSubdir": "UltraDual",
+    "thumbsDir": "~/.cache/noctwall/thumbs",
+    "cacheDir": "~/.cache/noctwall",
+    "venvPython": "~/.local/share/noctwall/venv/bin/python",
+    "wallpaperGetCmd": [
+      "noctalia",
+      "msg",
+      "wallpaper-get"
+    ],
+    "wallpaperSetCmd": [
+      "noctalia",
+      "msg",
+      "wallpaper-set"
+    ],
+    "noctaliaSettings": "~/.local/state/noctalia/settings.toml"
+  },
+  "carousel": {
+    "cardWidth": 720,
+    "cardHeight": 406,
+    "skew": -0.35,
+    "borderWidth": 3,
+    "slotWidth": 360,
+    "sideScale": 0.56,
+    "perspective": 0.00022,
+    "height": 560,
+    "blurPadding": 96,
+    "blurEditorPadding": 240,
+    "editorShiftY": -82,
+    "glowEnabled": true,
+    "glowPulseMin": 0.65,
+    "glowPulseMax": 0.96,
+    "defaultAccent": "#7aa2f7"
+  },
+  "transitions": {
+    "msContagio": 1800,
+    "msPerfil": 2000,
+    "msFade": 130,
+    "glow": 0.9,
+    "lineWidth": 1.5
+  },
+  "plugins": {
+    "enabled": [
+      "noctwall-openrgb",
+      "noctwall-studio"
+    ]
+  }
+}

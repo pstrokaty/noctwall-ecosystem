@@ -1,0 +1,9 @@
+{
+  "id": "noctwall-studio",
+  "name": "NoctWall Studio",
+  "version": "1.0.0",
+  "description": "Live visual geometry, 3D perspective, glow and path configurator for NoctWall",
+  "slots": [
+    "StageOverlay.qml"
+  ]
+}

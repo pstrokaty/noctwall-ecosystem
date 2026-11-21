@@ -1,0 +1,10 @@
+{
+  "id": "noctwall-openrgb",
+  "name": "NoctWall OpenRGB",
+  "version": "1.0.0",
+  "description": "5-zone keyboard RGB synchronization and live custom profile editor for NoctWall",
+  "slots": [
+    "PluginWorker.qml",
+    "BottomSlot.qml"
+  ]
+}

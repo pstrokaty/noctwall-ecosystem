@@ -1,0 +1,10 @@
+# User runtime configuration & local state
+noctwall/config.json
+noctwall-openrgb/g213-settings.json
+noctwall-openrgb/g213-custom.json
+
+# Caches & Python artifacts
+__pycache__/
+*.py[cod]
+*.bak
+.DS_Store
