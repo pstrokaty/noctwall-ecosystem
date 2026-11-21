@@ -10,7 +10,7 @@ Scope {
     id: root
     property bool open: false
     readonly property string home: Quickshell.env("HOME")
-    readonly property string rootDir: Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "")
+    readonly property string rootDir: Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "").replace(/\/+$/, "")
     readonly property string configPath: root.rootDir + "/config.json"
 
     // Reactive configuration loaded from config.json (live-editable by NoctWall-Studio)
@@ -213,9 +213,8 @@ Scope {
     }
 
     function persistConfig() {
-        saveCfgProc.command = ["python3", "-c",
-            "import json,os,sys; p=sys.argv[1]; t=p+'.tmp'; open(t,'w').write(json.dumps(json.loads(sys.argv[2]),indent=2)+'\n'); os.replace(t,p)",
-            root.configPath, JSON.stringify(root.cfg)]
+        const py = "import json,os,sys; p=os.path.realpath(sys.argv[1]); os.makedirs(os.path.dirname(p),exist_ok=True); t=p+'.tmp'; open(t,'w',encoding='utf-8').write(json.dumps(json.loads(sys.argv[2]),indent=2)+chr(10)); os.replace(t,p)"
+        saveCfgProc.command = ["python3", "-c", py, root.configPath, JSON.stringify(root.cfg)]
         saveCfgProc.running = false
         saveCfgProc.running = true
     }
