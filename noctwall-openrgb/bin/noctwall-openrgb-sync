@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, colorsys, json, os, pathlib, re, subprocess, sys
+import argparse, colorsys, json, os, pathlib, re, subprocess, sys, time
 
 try:
     from PIL import Image
@@ -192,7 +192,22 @@ def hex_to_bgr(h):
     h = h.lstrip("#")
     return (int(h[4:6], 16) << 16) | (int(h[2:4], 16) << 8) | int(h[0:2], 16)
 
-def apply_openrgb(hex_list, sat_pct=0, val_pct=0):
+def wait_for_openrgb_device(needle="Gaming Keyboard G213", max_wait=20.0):
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        try:
+            res = subprocess.run(
+                ["openrgb", "--client", "127.0.0.1:6742", "-l"],
+                capture_output=True, text=True, timeout=3, check=False
+            )
+            if res.returncode == 0 and needle in res.stdout:
+                return True
+        except Exception:
+            pass
+        time.sleep(1.0)
+    return False
+
+def apply_openrgb(hex_list, sat_pct=0, val_pct=0, wait_ready=False):
     tuned = [tune_hex(x, sat_pct, val_pct) for x in hex_list[:5]]
     bgr = [hex_to_bgr(x) for x in tuned]
     leds = [bgr[0]] + bgr
@@ -205,7 +220,9 @@ def apply_openrgb(hex_list, sat_pct=0, val_pct=0):
         tmp = target_profile.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=4), encoding="utf-8")
         os.replace(tmp, target_profile)
-    subprocess.run(["openrgb", "--client", "127.0.0.1:6742", "-p", "NoctaliaSync"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, check=False)
+    if wait_ready:
+        wait_for_openrgb_device()
+    subprocess.run(["openrgb", "--client", "127.0.0.1:6742", "-p", "NoctaliaSync"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False)
 
 def cached_modes(img_path, d):
     key = str(img_path)
@@ -223,6 +240,7 @@ ap.add_argument("--mode", type=int, default=None)
 ap.add_argument("--next", action="store_true")
 ap.add_argument("--prev", action="store_true")
 ap.add_argument("--export-only", action="store_true")
+ap.add_argument("--wait", action="store_true")
 ap.add_argument("--image", type=str, default=None)
 ap.add_argument("--warm", nargs="?", const="", default=None)
 ap.add_argument("--preview-colors", type=str, default=None)
@@ -325,4 +343,4 @@ else:
 state_file.write_text(f"{active}\n", encoding="utf-8")
 save_json_atomic(modes_file, {"active": active, "modes": modes, "pool": pool, "sat": sat_pct, "val": val_pct})
 if not args.export_only:
-    apply_openrgb(modes[active]["colors"], sat_pct, val_pct)
+    apply_openrgb(modes[active]["colors"], sat_pct, val_pct, wait_ready=args.wait)

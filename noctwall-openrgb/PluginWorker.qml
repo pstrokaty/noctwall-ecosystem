@@ -204,20 +204,20 @@ Item {
         worker.runSync(args)
     }
 
-    property int startupSyncAttempts: 0
+    Process {
+        id: startupSyncProc
+        environment: ({ NOCTWALL_OPENRGB_DIR: worker.pluginDir })
+        onExited: worker.reloadModes()
+    }
     Timer {
         id: startupSyncTimer
-        interval: 1500
-        repeat: true
+        interval: 800
+        repeat: false
         onTriggered: {
-            worker.startupSyncAttempts += 1
             const wp = worker.api ? worker.api.currentWallPath : ""
-            worker.runSync(wp ? ["--image", wp] : [])
-            if (worker.startupSyncAttempts >= 2) {
-                startupSyncTimer.stop()
-            } else {
-                startupSyncTimer.interval = 3000
-            }
+            startupSyncProc.command = [worker.syncBin, "--wait"].concat(wp ? ["--image", wp] : [])
+            startupSyncProc.running = false
+            startupSyncProc.running = true
         }
     }
 
@@ -226,8 +226,6 @@ Item {
         if (!worker.api) return
         worker.reloadModes()
         if (!warmRgbProc.running) warmRgbProc.running = true
-        worker.startupSyncAttempts = 0
-        startupSyncTimer.interval = 1500
         startupSyncTimer.restart()
     }
 
