@@ -1,11 +1,11 @@
 <div align="center">
   <img src="assets/logo.png" alt="NoctWall Logo" width="110" />
   <h1>NoctWall Ecosystem</h1>
-  <p><strong>Modular Wayland wallpaper transition engine, anti-aliased 3D perspective carousel, and live plugin ecosystem built with Quickshell, GLSL shaders, and OpenRGB.</strong></p>
+  <p><strong>Built natively for Noctalia (Quickshell) — a modular Wayland wallpaper transition engine, anti-aliased 3D perspective carousel, and live plugin ecosystem powered by GLSL shaders, BiRefNet, and OpenRGB.</strong></p>
 
   <p>
     <img src="https://img.shields.io/badge/Wayland-Hyprland-7aa2f7?style=flat-square&logo=wayland&logoColor=white" alt="Wayland Hyprland" />
-    <img src="https://img.shields.io/badge/Shell-Quickshell-bb9af7?style=flat-square" alt="Quickshell" />
+    <img src="https://img.shields.io/badge/Shell-Noctalia%20%2F%20Quickshell-bb9af7?style=flat-square" alt="Noctalia Quickshell" />
     <img src="https://img.shields.io/badge/Shaders-GLSL%20%2F%20QSB-f7768e?style=flat-square" alt="GLSL" />
     <img src="https://img.shields.io/badge/AI%20Masks-BiRefNet-7dcfff?style=flat-square" alt="BiRefNet" />
     <img src="https://img.shields.io/badge/RGB-OpenRGB-9ece6a?style=flat-square" alt="OpenRGB" />
@@ -85,7 +85,7 @@ noctwall-ecosystem/
 - **Qt 6 Shader Tools** (`qt6-shadertools` — provides `qsb` if recompiling `wallfx.frag`)
 - **Python 3** (`python`) with `pillow`, `numpy`, and `scipy` (installed automatically into `~/.local/share/noctwall/venv` by `install.sh` for `contagio` maps)
 - **ImageMagick** (`imagemagick` / `magick`) or **FFmpeg** (`ffmpeg`) for fast thumbnail generation
-- **Wallpaper setter backend** (e.g., `swww`, `hyprpaper`, or `noctalia` — configured via `paths.wallpaperGetCmd` and `paths.wallpaperSetCmd` in `config.json`)
+- **Desktop Shell / Wallpaper Backend:** Designed primarily for **Noctalia** (integrates natively with `noctalia msg` wallpaper IPC, `settings.toml` multi-monitor `span` mode, and its dynamic color/palette workflow), with automatic standalone fallback to `swww` or `hyprpaper` on bare Hyprland setups
 
 ### 2. Local AI Silhouette Model (`perfil` Outline Transitions)
 Out of the box, `install.sh` sets up lightweight dependencies for `contagio` transitions. To enable character/subject silhouette detection (`perfil`), `noctwall-fx` runs a local neural network completely offline:
@@ -146,7 +146,7 @@ Plugins reside in dedicated directories and are enabled via `plugins.enabled` in
 
 ## Origins & Attribution (`pocket-dots`)
 
-NoctWall started from the core shader transition engine of [**pocket-dots**](https://github.com/diegoMalagrida/pocket-dots) by [@diegoMalagrida](https://github.com/diegoMalagrida) (GPL-3.0) and evolved into a standalone, modular desktop ecosystem:
+NoctWall started from the core shader transition engine of [**pocket-dots**](https://github.com/diegoMalagrida/pocket-dots) by [@diegoMalagrida](https://github.com/diegoMalagrida) (GPL-3.0) and evolved into a modular wallpaper and plugin ecosystem built around **Noctalia**:
 
 - **Extracted & Refactored from `pocket-dots`:**
   - The dual-mode transition pipeline (`noctwall-fx` + `wallfx.frag` + `WallpaperFx.qml`), combining precomputed 16-bit RGB arrival fields (`contagio` Dijkstra noise spread) and `BiRefNet` signed-distance silhouette maps (`perfil`) rendered on `WlrLayer.Bottom`.
