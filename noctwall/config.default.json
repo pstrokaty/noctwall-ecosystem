@@ -1,20 +1,16 @@
 {
   "version": 1,
   "paths": {
-    "wallpapersDir": "~/Obrazy/Wallpapers",
-    "randomSubdir": "UltraDual",
+    "wallpapersDir": "~/Pictures/Wallpapers",
+    "randomSubdir": "",
     "thumbsDir": "~/.cache/noctwall/thumbs",
     "cacheDir": "~/.cache/noctwall",
     "venvPython": "~/.local/share/noctwall/venv/bin/python",
     "wallpaperGetCmd": [
-      "noctalia",
-      "msg",
-      "wallpaper-get"
+      "noctwall-backend-get"
     ],
     "wallpaperSetCmd": [
-      "noctalia",
-      "msg",
-      "wallpaper-set"
+      "noctwall-backend-set"
     ],
     "noctaliaSettings": "~/.local/state/noctalia/settings.toml"
   },
@@ -45,7 +41,6 @@
   },
   "plugins": {
     "enabled": [
-      "noctwall-openrgb",
       "noctwall-studio"
     ]
   }
