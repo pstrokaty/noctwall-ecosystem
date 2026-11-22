@@ -146,7 +146,7 @@ Plugins reside in dedicated directories and are enabled via `plugins.enabled` in
 
 ## Origins & Attribution (`pocket-dots`)
 
-NoctWall started from the core shader transition engine of **`pocket-dots`** (GPL-3.0) and evolved into a standalone, modular desktop ecosystem:
+NoctWall started from the core shader transition engine of [**pocket-dots**](https://github.com/diegoMalagrida/pocket-dots) by [@diegoMalagrida](https://github.com/diegoMalagrida) (GPL-3.0) and evolved into a standalone, modular desktop ecosystem:
 
 - **Extracted & Refactored from `pocket-dots`:**
   - The dual-mode transition pipeline (`noctwall-fx` + `wallfx.frag` + `WallpaperFx.qml`), combining precomputed 16-bit RGB arrival fields (`contagio` Dijkstra noise spread) and `BiRefNet` signed-distance silhouette maps (`perfil`) rendered on `WlrLayer.Bottom`.
