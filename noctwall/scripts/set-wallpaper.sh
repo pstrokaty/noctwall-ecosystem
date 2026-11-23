@@ -26,7 +26,7 @@ print(out)
 mkdir -p "$HOME/.cache/noctwall"
 echo "$NEW" > "$HOME/.cache/noctwall/last-wallpaper.txt"
 
-if grep -Eq "^[[:space:]]*fill_mode[[:space:]]*=[[:space:]]*"span"" "$HOME/.local/state/noctalia/settings.toml" 2>/dev/null; then
+if grep -Eq '^[[:space:]]*fill_mode[[:space:]]*=[[:space:]]*"span"' "$HOME/.local/state/noctalia/settings.toml" 2>/dev/null; then
     SPAN=true
 else
     SPAN=false
