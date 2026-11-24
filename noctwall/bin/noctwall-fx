@@ -32,13 +32,35 @@ import heapq
 import json
 import os
 import random
+import subprocess
 import sys
 
 HOME = os.path.expanduser("~")
-CACHE = os.path.join(HOME, ".cache", "noctwall")
 VENV = os.path.join(HOME, ".local", "share", "noctwall")
-VENV_PY = os.environ.get("NOCTWALL_VENV_PY") or os.path.join(VENV, "venv", "bin", "python")
-WALLS = os.path.join(HOME, "Obrazy", "Wallpapers")
+
+def _load_paths():
+    cfg_p = os.path.join(HOME, ".config", "noctwall", "config.json")
+    try:
+        pic = subprocess.run(["xdg-user-dir", "PICTURES"], capture_output=True, text=True, timeout=2).stdout.strip()
+    except Exception:
+        pic = ""
+    walls = os.path.join(pic, "Wallpapers") if pic and os.path.isabs(pic) else os.path.join(HOME, "Pictures", "Wallpapers")
+    cache = os.path.join(HOME, ".cache", "noctwall")
+    venv_py = os.path.join(VENV, "venv", "bin", "python")
+    try:
+        with open(cfg_p, encoding="utf-8") as fh:
+            p = json.load(fh).get("paths", {})
+        if p.get("wallpapersDir"):
+            walls = os.path.expanduser(p["wallpapersDir"])
+        if p.get("cacheDir"):
+            cache = os.path.expanduser(p["cacheDir"])
+        if p.get("venvPython"):
+            venv_py = os.path.expanduser(p["venvPython"])
+    except Exception:
+        pass
+    return walls, cache, os.environ.get("NOCTWALL_VENV_PY") or venv_py
+
+WALLS, CACHE, VENV_PY = _load_paths()
 
 # The contagion grid: 240x135 cells, i.e. 8 px cells on a 1920x1080 screen:
 # chunky enough to read as pixel art at a glance (6 px looked like a soft

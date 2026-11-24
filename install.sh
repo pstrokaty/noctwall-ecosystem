@@ -19,8 +19,12 @@ LOCAL_BIN="$HOME/.local/bin"
 VENV_DIR="$HOME/.local/share/noctwall/venv"
 SYSTEMD_USER_DIR="$CONFIG_DIR/systemd/user"
 
+PICTURES_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")"
+[ -n "$PICTURES_DIR" ] || PICTURES_DIR="$HOME/Pictures"
+DEFAULT_WALLS="$PICTURES_DIR/Wallpapers"
+
 echo "[1/5] Linking NoctWall core and plugins..."
-mkdir -p "$CONFIG_DIR" "$LOCAL_BIN" "$SYSTEMD_USER_DIR" "$HOME/Pictures/Wallpapers"
+mkdir -p "$CONFIG_DIR" "$LOCAL_BIN" "$SYSTEMD_USER_DIR" "$DEFAULT_WALLS"
 
 ln -sfn "$REPO_DIR/noctwall" "$CONFIG_DIR/noctwall"
 ln -sfn "../../noctwall-openrgb" "$REPO_DIR/noctwall/plugins/noctwall-openrgb"
@@ -37,7 +41,11 @@ ln -sfn "$REPO_DIR/noctwall-openrgb/bin/noctwall-openrgb-sync" "$LOCAL_BIN/noctw
 
 echo "[2/5] Initializing default configuration..."
 if [ ! -f "$REPO_DIR/noctwall/config.json" ]; then
-    cp "$REPO_DIR/noctwall/config.default.json" "$REPO_DIR/noctwall/config.json"
+    case "$DEFAULT_WALLS" in
+        "$HOME"/*) REL_WALLS="~${DEFAULT_WALLS#$HOME}" ;;
+        *) REL_WALLS="$DEFAULT_WALLS" ;;
+    esac
+    sed "s|"~/Pictures/Wallpapers"|"$REL_WALLS"|" "$REPO_DIR/noctwall/config.default.json" > "$REPO_DIR/noctwall/config.json"
 fi
 
 echo "[3/5] Setting up Python virtual environment..."

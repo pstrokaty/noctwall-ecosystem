@@ -374,7 +374,7 @@ Item {
                 SectionHeader { text: "ACTIVE PLUGINS" }
 
                 ToggleRow {
-                    label: "OpenRGB Zone Sync (Logitech G213)"
+                    label: "OpenRGB Zone Sync (Keyboard RGB)"
                     checked: studio.enabledList.indexOf("noctwall-openrgb") >= 0
                     onToggled: studio.togglePlugin("noctwall-openrgb")
                 }
@@ -434,7 +434,7 @@ Item {
                         font.pixelSize: 11
                         clip: true
                         selectByMouse: true
-                        text: (studio.pth && studio.pth.wallpapersDir) ? studio.pth.wallpapersDir : "~/Obrazy/Wallpapers"
+                        text: (studio.pth && studio.pth.wallpapersDir) ? studio.pth.wallpapersDir : "~/Pictures/Wallpapers"
                         onEditingFinished: {
                             studio.setParam("paths", "wallpapersDir", text)
                             if (studio.api) studio.api.refocusStage()

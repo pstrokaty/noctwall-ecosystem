@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -u
 
-SRC="${1:-$HOME/Obrazy/Wallpapers}"
-DST="${2:-$HOME/.cache/noctwall/thumbs}"
+CFG_FILE="$HOME/.config/noctwall/config.json"
+PIC_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")"
+[ -n "$PIC_DIR" ] || PIC_DIR="$HOME/Pictures"
+CFG_SRC="$PIC_DIR/Wallpapers"
+CFG_DST="$HOME/.cache/noctwall/thumbs"
+if [ -f "$CFG_FILE" ] && command -v python3 >/dev/null 2>&1; then
+    CFG_SRC="$(python3 -c "import json,os,sys; p=json.load(open(sys.argv[1])).get("paths",{}); print(os.path.expanduser(p.get("wallpapersDir") or sys.argv[2]))" "$CFG_FILE" "$CFG_SRC" 2>/dev/null || echo "$CFG_SRC")"
+    CFG_DST="$(python3 -c "import json,os,sys; p=json.load(open(sys.argv[1])).get("paths",{}); print(os.path.expanduser(p.get("thumbsDir") or sys.argv[2]))" "$CFG_FILE" "$CFG_DST" 2>/dev/null || echo "$CFG_DST")"
+fi
+SRC="${1:-$CFG_SRC}"
+DST="${2:-$CFG_DST}"
 GEOM="900x420^"
 JOBS=4
 

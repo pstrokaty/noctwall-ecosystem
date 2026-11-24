@@ -1,17 +1,37 @@
 #!/usr/bin/env python3
 import argparse, colorsys, json, os, pathlib, re, subprocess, sys, time
 
+home = pathlib.Path.home()
+
+def _load_noctwall_paths():
+    cfg_p = home / ".config/noctwall/config.json"
+    try:
+        pic = subprocess.run(["xdg-user-dir", "PICTURES"], capture_output=True, text=True, timeout=2).stdout.strip()
+    except Exception:
+        pic = ""
+    wdir = pathlib.Path(pic) / "Wallpapers" if pic and os.path.isabs(pic) else home / "Pictures/Wallpapers"
+    vpy = home / ".local/share/noctwall/venv/bin/python"
+    if cfg_p.exists():
+        try:
+            p = json.loads(cfg_p.read_text(encoding="utf-8")).get("paths", {})
+            if p.get("wallpapersDir"):
+                wdir = pathlib.Path(os.path.expanduser(p["wallpapersDir"]))
+            if p.get("venvPython"):
+                vpy = pathlib.Path(os.path.expanduser(p["venvPython"]))
+        except Exception:
+            pass
+    return wdir, vpy
+
+walls_root, _venv_py = _load_noctwall_paths()
+
 try:
     from PIL import Image
 except ImportError:
-    vp = pathlib.Path.home() / ".config/hypr/scripts/venv/bin/python"
-    if vp.exists() and sys.executable != str(vp):
-        os.execv(str(vp), [str(vp), *sys.argv])
+    if _venv_py.exists() and sys.executable != str(_venv_py):
+        os.execv(str(_venv_py), [str(_venv_py), *sys.argv])
     Image = None
 
-home = pathlib.Path.home()
 conf = home / ".config/kitty/themes/noctalia.conf"
-walls_root = home / "Obrazy/Wallpapers"
 profiles_dir = home / ".config/OpenRGB/profiles"
 base_profile = profiles_dir / "DEFAULT.json"
 target_profile = profiles_dir / "NoctaliaSync.json"
@@ -46,10 +66,20 @@ def load_settings():
     val = int(d.get("val", 0))
     return max(-50, min(100, sat)), max(-50, min(80, val))
 
+def get_device_name():
+    env_dev = os.environ.get("NOCTWALL_OPENRGB_DEVICE", "").strip()
+    if env_dev:
+        return env_dev
+    d = load_json_dict(settings_file)
+    return str(d.get("deviceName") or "Gaming Keyboard G213")
+
 def save_settings(sat, val):
     sat = max(-50, min(100, int(sat)))
     val = max(-50, min(80, int(val)))
-    save_json_atomic(settings_file, {"sat": sat, "val": val})
+    d = load_json_dict(settings_file)
+    d["sat"] = sat
+    d["val"] = val
+    save_json_atomic(settings_file, d)
     return sat, val
 
 def wall_rel_key(img_path):
@@ -192,7 +222,8 @@ def hex_to_bgr(h):
     h = h.lstrip("#")
     return (int(h[4:6], 16) << 16) | (int(h[2:4], 16) << 8) | int(h[0:2], 16)
 
-def wait_for_openrgb_device(needle="Gaming Keyboard G213", max_wait=20.0):
+def wait_for_openrgb_device(needle=None, max_wait=20.0):
+    needle = needle or get_device_name()
     deadline = time.monotonic() + max_wait
     while time.monotonic() < deadline:
         try:
@@ -214,8 +245,9 @@ def apply_openrgb(hex_list, sat_pct=0, val_pct=0, wait_ready=False):
     if base_profile.exists():
         data = json.loads(base_profile.read_text(encoding="utf-8"))
         data["profile_name"] = "NoctaliaSync"
+        dev_name = get_device_name()
         for ctrl in data.get("controllers", []):
-            if "Gaming Keyboard G213" in ctrl.get("name", ""):
+            if dev_name in ctrl.get("name", ""):
                 ctrl["active_mode"] = 0; ctrl["colors"] = leds; break
         tmp = target_profile.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=4), encoding="utf-8")

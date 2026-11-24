@@ -16,7 +16,7 @@ Scope {
     // Reactive configuration loaded from config.json (live-editable by NoctWall-Studio)
     property var cfg: ({
         paths: {
-            wallpapersDir: "~/Obrazy/Wallpapers",
+            wallpapersDir: "~/Pictures/Wallpapers",
             randomSubdir: "UltraDual",
             thumbsDir: "~/.cache/noctwall/thumbs",
             cacheDir: "~/.cache/noctwall"
@@ -56,7 +56,7 @@ Scope {
         return p.startsWith("~/") ? (root.home + p.slice(1)) : p
     }
 
-    readonly property string wallsDir: root.expandHome((root.cfg.paths && root.cfg.paths.wallpapersDir) || "~/Obrazy/Wallpapers")
+    readonly property string wallsDir: root.expandHome((root.cfg.paths && root.cfg.paths.wallpapersDir) || "~/Pictures/Wallpapers")
     readonly property string thumbsDir: root.expandHome((root.cfg.paths && root.cfg.paths.thumbsDir) || "~/.cache/noctwall/thumbs")
     readonly property string cacheDir: root.expandHome((root.cfg.paths && root.cfg.paths.cacheDir) || "~/.cache/noctwall")
 
